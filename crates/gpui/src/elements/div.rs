@@ -1282,6 +1282,12 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
 
+    /// Report whether a form control's current value is invalid.
+    fn aria_invalid(mut self, invalid: bool) -> Self {
+        self.interactivity().aria.invalid = invalid.then_some(accesskit::Invalid::True);
+        self
+    }
+
     /// Set the keyboard shortcut(s) that activate this element, announced by
     /// assistive technology (maps to AccessKit's `keyboard_shortcut`).
     ///
@@ -1997,6 +2003,7 @@ pub(crate) struct AriaProperties {
     pub(crate) author_id: Option<SharedString>,
     pub(crate) label: Option<SharedString>,
     pub(crate) description: Option<SharedString>,
+    pub(crate) invalid: Option<accesskit::Invalid>,
     pub(crate) keyshortcuts: Option<SharedString>,
     pub(crate) selected: Option<bool>,
     pub(crate) expanded: Option<bool>,
@@ -3415,6 +3422,9 @@ impl Interactivity {
         if let Some(description) = &self.aria.description {
             node.set_description(description.to_string());
         }
+        if let Some(invalid) = self.aria.invalid {
+            node.set_invalid(invalid);
+        }
         if let Some(keyshortcuts) = &self.aria.keyshortcuts {
             node.set_keyboard_shortcut(keyshortcuts.to_string());
         }
@@ -4758,6 +4768,16 @@ mod tests {
         element.interactivity().write_a11y_info(&mut node);
 
         assert_eq!(node.author_id(), Some("settings.buffer-font-size"));
+    }
+
+    #[test]
+    fn test_aria_invalid_builder_writes_invalid_state() {
+        let mut element = div().id("chat-title").aria_invalid(true);
+        let mut node = accesskit::Node::new(accesskit::Role::TextInput);
+
+        element.interactivity().write_a11y_info(&mut node);
+
+        assert_eq!(node.invalid(), Some(accesskit::Invalid::True));
     }
 
     #[test]

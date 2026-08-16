@@ -125,10 +125,23 @@ impl AppContext for TestAppContext {
 impl TestAppContext {
     /// Creates a new `TestAppContext`. Usually you can rely on `#[gpui::test]` to do this for you.
     pub fn build(dispatcher: TestDispatcher, fn_name: Option<&'static str>) -> Self {
+        Self::build_with_text_system(dispatcher, fn_name, Arc::new(crate::NoopTextSystem))
+    }
+
+    /// Creates a test context with a caller-supplied text system.
+    pub(crate) fn build_with_text_system(
+        dispatcher: TestDispatcher,
+        fn_name: Option<&'static str>,
+        platform_text_system: Arc<dyn crate::PlatformTextSystem>,
+    ) -> Self {
         let arc_dispatcher = Arc::new(dispatcher.clone());
         let background_executor = BackgroundExecutor::new(arc_dispatcher.clone());
         let foreground_executor = ForegroundExecutor::new(arc_dispatcher);
-        let platform = TestPlatform::new(background_executor.clone(), foreground_executor.clone());
+        let platform = TestPlatform::with_text_system(
+            background_executor.clone(),
+            foreground_executor.clone(),
+            platform_text_system,
+        );
         let asset_source = Arc::new(());
         let http_client = crate::http_client::FakeHttpClient::with_404_response();
         let text_system = Arc::new(TextSystem::new(platform.text_system()));

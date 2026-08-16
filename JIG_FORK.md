@@ -20,8 +20,7 @@ base:
 
 1. this provenance document;
 2. the accessibility identifier API and focused unit tests;
-3. the paint-transform implementation; and
-4. the paint-transform regression suite.
+3. the paint-transform implementation and its regression suite.
 
 Cargo consumers pin the final commit SHA. Tags are descriptive only and must
 never replace an immutable revision in a consuming manifest.

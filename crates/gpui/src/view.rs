@@ -1,7 +1,8 @@
 use crate::{
     AnyElement, AnyEntity, AnyWeakEntity, App, Bounds, ContentMask, Context, Element, ElementId,
     Entity, EntityId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, PaintIndex,
-    Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement, TextStyle, WeakEntity,
+    PaintTransform, Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement,
+    TextStyle, WeakEntity,
 };
 use crate::{Empty, Window};
 use anyhow::Result;
@@ -287,6 +288,8 @@ struct ViewElementState {
     paint_range: Range<PaintIndex>,
     cache_key: ViewElementCacheKey,
     accessed_entities: FxHashSet<EntityId>,
+    /// The transform baked into this state's cached primitives.
+    painted_transform: PaintTransform,
 }
 
 struct ViewElementCacheKey {
@@ -382,11 +385,13 @@ impl<V: View> Element for ViewElement<V> {
                     |element_state, window| {
                         let content_mask = window.content_mask();
                         let text_style = window.text_style();
+                        let expected_transform = window.paint_transform;
 
                         if let Some(mut element_state) = element_state
                             && element_state.cache_key.bounds == bounds
                             && element_state.cache_key.content_mask == content_mask
                             && element_state.cache_key.text_style == text_style
+                            && element_state.painted_transform == expected_transform
                             && !window.dirty_views.contains(&entity_id)
                             && !window.refreshing
                         {
@@ -428,6 +433,7 @@ impl<V: View> Element for ViewElement<V> {
                                     content_mask,
                                     text_style,
                                 },
+                                painted_transform: expected_transform,
                             },
                         )
                     },
@@ -472,11 +478,16 @@ impl<V: View> Element for ViewElement<V> {
                                 element.paint(window, cx);
                                 window.refreshing = refreshing;
                             } else {
+                                debug_assert_eq!(
+                                    element_state.painted_transform, window.paint_transform,
+                                    "cached view paint transform differs from prepaint expectation"
+                                );
                                 window.reuse_paint(element_state.paint_range.clone());
                             }
 
                             let paint_end = window.paint_index();
                             element_state.paint_range = paint_start..paint_end;
+                            element_state.painted_transform = window.paint_transform;
 
                             ((), element_state)
                         },

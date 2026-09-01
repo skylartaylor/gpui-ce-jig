@@ -820,6 +820,34 @@ impl VisualTestContext {
             .clone()
     }
 
+    /// Activate accessibility through the test platform's adapter lifecycle.
+    ///
+    /// Returns the adapter's initial root-only update. Subsequent finalized
+    /// frame updates can be retrieved with [`Self::take_a11y_tree_updates`].
+    pub fn activate_a11y(&mut self) -> Option<accesskit::TreeUpdate> {
+        let update = self.cx.test_window(self.window).simulate_a11y_activation();
+        self.run_until_parked();
+        update
+    }
+
+    /// Deactivate accessibility through the test platform's adapter lifecycle.
+    pub fn deactivate_a11y(&mut self) {
+        self.cx
+            .test_window(self.window)
+            .simulate_a11y_deactivation();
+        self.run_until_parked();
+    }
+
+    /// Drain the finalized accessibility tree updates emitted by this window.
+    pub fn take_a11y_tree_updates(&mut self) -> Vec<accesskit::TreeUpdate> {
+        self.cx.test_window(self.window).take_a11y_tree_updates()
+    }
+
+    /// Return the AccessKit identity derived from a GPUI global element identity.
+    pub fn accesskit_node_id(global_id: &crate::GlobalElementId) -> accesskit::NodeId {
+        global_id.accesskit_node_id()
+    }
+
     /// Simulate a sequence of keystrokes `cx.simulate_keystrokes("cmd-p escape")`
     /// Automatically runs until parked.
     pub fn simulate_keystrokes(&mut self, keystrokes: &str) {

@@ -1,5 +1,5 @@
 use crate::{
-    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DevicePixels,
+    A11yCallbacks, AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DevicePixels,
     DispatchEventResult, GpuSpecs, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformHeadlessRenderer, PlatformInput, PlatformInputHandler, PlatformWindow, Point,
     PromptButton, RequestFrameOptions, Scene, Size, TestPlatform, TileId, WindowAppearance,
@@ -40,6 +40,8 @@ pub(crate) struct TestWindowState {
     appearance: WindowAppearance,
     external_drag_files: Vec<(PathBuf, bool)>,
     start_external_drag_result: bool,
+    a11y_callbacks: Option<A11yCallbacks>,
+    a11y_tree_updates: Vec<accesskit::TreeUpdate>,
 }
 
 #[derive(Clone)]
@@ -96,6 +98,8 @@ impl TestWindow {
             appearance: WindowAppearance::Light,
             external_drag_files: Vec::new(),
             start_external_drag_result: false,
+            a11y_callbacks: None,
+            a11y_tree_updates: Vec::new(),
         })))
     }
 
@@ -150,6 +154,25 @@ impl TestWindow {
 
     pub fn set_start_external_drag_result(&self, result: bool) {
         self.0.lock().start_external_drag_result = result;
+    }
+
+    pub(crate) fn simulate_a11y_activation(&self) -> Option<accesskit::TreeUpdate> {
+        let callbacks = self.0.lock().a11y_callbacks.take()?;
+        let initial_update = (callbacks.activation)();
+        self.0.lock().a11y_callbacks = Some(callbacks);
+        initial_update
+    }
+
+    pub(crate) fn simulate_a11y_deactivation(&self) {
+        let Some(callbacks) = self.0.lock().a11y_callbacks.take() else {
+            return;
+        };
+        (callbacks.deactivation)();
+        self.0.lock().a11y_callbacks = Some(callbacks);
+    }
+
+    pub(crate) fn take_a11y_tree_updates(&self) -> Vec<accesskit::TreeUpdate> {
+        std::mem::take(&mut self.0.lock().a11y_tree_updates)
     }
 }
 
@@ -329,6 +352,14 @@ impl PlatformWindow for TestWindow {
         if let Some(renderer) = &mut state.renderer {
             renderer.render_scene(scene, device_size).warn_on_err();
         }
+    }
+
+    fn a11y_init(&self, callbacks: A11yCallbacks) {
+        self.0.lock().a11y_callbacks = Some(callbacks);
+    }
+
+    fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {
+        self.0.lock().a11y_tree_updates.push(tree_update);
     }
 
     fn sprite_atlas(&self) -> sync::Arc<dyn crate::PlatformAtlas> {

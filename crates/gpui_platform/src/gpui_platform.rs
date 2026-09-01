@@ -5,6 +5,11 @@ pub use gpui::Platform;
 
 use std::rc::Rc;
 
+#[cfg(not(target_family = "wasm"))]
+mod native_http_client;
+#[cfg(not(target_family = "wasm"))]
+pub use native_http_client::NativeHttpClient;
+
 /// Returns a background executor for the current platform.
 pub fn background_executor() -> gpui::BackgroundExecutor {
     current_platform(true).background_executor()

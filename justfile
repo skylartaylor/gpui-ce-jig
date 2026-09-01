@@ -432,16 +432,6 @@ publish dry="false":
         "crates/gpui_elements/Cargo.toml"
 
         "crates/gpui_platform/Cargo.toml"
-
-        # GPUI CE Components. These are a nested workspace because its
-        # examples and web demo have their own resolver and lockfile.
-        "crates/gpui_ce_components/crates/macros/Cargo.toml"
-        "crates/gpui_ce_components/crates/assets/Cargo.toml"
-        "crates/gpui_ce_components/crates/base/Cargo.toml"
-        "crates/gpui_ce_components/crates/fps/Cargo.toml"
-        "crates/gpui_ce_components/crates/shell/Cargo.toml"
-        "crates/gpui_ce_components/crates/ui/Cargo.toml"
-        "crates/gpui_ce_components/crates/webview/Cargo.toml"
     ]
 
     let dry_flag = if $dry_run { ["--dry-run"] } else { [] }
@@ -454,8 +444,6 @@ publish dry="false":
     # validates the complete local release graph rather than stale registry
     # versions. The patches are passed only to the dry run and are never part
     # of the published manifests.
-    let root_crates = $crates | where { |manifest| not ($manifest | str starts-with "crates/gpui_ce_components/") }
-
     for manifest in $crates {
         let name = ($manifest | path dirname | path basename)
         let metadata = (^cargo metadata --no-deps --format-version 1 --manifest-path $manifest | from json)
@@ -492,13 +480,8 @@ publish dry="false":
         }
 
         print $"\n📦 Publishing ($name)..."
-        let patch_manifests = if ($manifest | str starts-with "crates/gpui_ce_components/") {
-            $crates
-        } else {
-            $root_crates
-        }
         let patch_flags = if $dry_run {
-            $patch_manifests
+            $crates
                 | each { |patch_manifest|
                     let patch_metadata = (^cargo metadata --no-deps --format-version 1 --manifest-path $patch_manifest | from json)
                     let patch_manifest_path = ($patch_manifest | path expand)

@@ -14,8 +14,6 @@ use smallvec::SmallVec;
 pub struct Animation {
     /// The timing and easing applied to this animation.
     pub motion: Motion,
-    /// Whether to derive the phase from a clock shared by the whole [`App`].
-    pub synced: bool,
 }
 
 impl Animation {
@@ -25,7 +23,6 @@ impl Animation {
     pub fn new(motion: impl Into<Motion>) -> Self {
         Self {
             motion: motion.into(),
-            synced: false,
         }
     }
 
@@ -38,8 +35,17 @@ impl Animation {
     /// Set the animation to loop phase-locked to a clock shared by the whole [`App`].
     pub fn repeat_synced(mut self) -> Self {
         self.motion.repeat = Repeat::Forever;
-        self.synced = true;
+        self.motion.easing.set_synced();
         self
+    }
+
+    /// Returns whether this animation derives its phase from the shared clock.
+    pub fn is_synced(&self) -> bool {
+        self.motion.easing.is_synced()
+    }
+
+    fn uses_synced_clock(&self) -> bool {
+        self.is_synced() && self.motion.repeat == Repeat::Forever && !self.motion.duration.is_zero()
     }
 
     /// Set the easing function to use for this animation.
@@ -177,7 +183,7 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                 let now = Instant::now();
 
                 let animation = &self.animations[animation_ix];
-                let sample = if animation.synced && !animation.motion.duration.is_zero() {
+                let sample = if animation.uses_synced_clock() {
                     let elapsed = cx.background_executor().now() - cx.synced_animation_epoch;
                     let duration = animation.motion.duration;
                     let elapsed =
@@ -496,5 +502,31 @@ mod tests {
             .advance_clock(Duration::from_secs(300 * 24 * 60 * 60) + Duration::from_millis(750));
         simulate_next_frame(&window, cx);
         assert_eq!(*first_deltas.borrow().last().unwrap(), 0.25);
+    }
+
+    #[test]
+    fn synced_animation_preserves_its_clock_when_easing_changes() {
+        let animation = Animation::new(Duration::from_secs(1))
+            .repeat_synced()
+            .with_easing(|progress| progress * progress);
+
+        assert!(animation.is_synced());
+        assert_eq!(
+            animation
+                .motion
+                .sample(Duration::from_millis(500))
+                .progress
+                .get(),
+            0.25
+        );
+    }
+
+    #[test]
+    fn synced_animation_clock_is_not_used_after_switching_back_to_oneshot() {
+        let mut animation = Animation::new(Duration::from_secs(1)).repeat_synced();
+        animation.motion.repeat = Repeat::Once;
+
+        assert!(animation.is_synced());
+        assert!(!animation.uses_synced_clock());
     }
 }

@@ -16,7 +16,8 @@ The component fork is adopted at the immutable revision and tag above. The
 runtime candidate is published for integration and review but is not yet
 adopted. Do not pin a consumer until the final runtime pull request, exact-head
 CI, security audit, and consumer proof gates are green and the runtime receives
-its own non-moving adopted tag.
+its own non-moving adopted tag. Runtime release tags do not publish component
+packages; the component remains a separately adopted Git dependency.
 
 ## Retained patches
 

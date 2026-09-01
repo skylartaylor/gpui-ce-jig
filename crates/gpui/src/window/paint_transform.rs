@@ -499,6 +499,17 @@ mod tests {
     #[gpui::test]
     fn nested_scopes_restore_transform_and_clip_after_unwind(cx: &mut TestAppContext) {
         let cx = cx.add_empty_window();
+        cx.update(|window, _| {
+            window.invalidator.set_phase(DrawPhase::Prepaint);
+            let panic = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                window.with_expected_paint_transform(PaintTransform::scale(0.5), |_| {
+                    panic!("intentional prepaint unwind")
+                });
+            }));
+            assert!(panic.is_err());
+            assert_eq!(window.paint_transform(), PaintTransform::identity());
+            window.invalidator.set_phase(DrawPhase::None);
+        });
         let restored = Rc::new(Cell::new(None));
         let recorded = restored.clone();
 
@@ -510,6 +521,13 @@ mod tests {
                     .size(px(30.))
                     .overflow_hidden()
                     .child(painter(move |window, _| {
+                        let mask_depth = window.content_mask_stack.len();
+                        window.with_paint_transform(PaintTransform::identity(), |window| {
+                            assert_eq!(window.paint_transform(), PaintTransform::identity());
+                            assert_eq!(window.content_mask_stack.len(), mask_depth);
+                        });
+                        assert_eq!(window.content_mask_stack.len(), mask_depth);
+
                         let panic = std::panic::catch_unwind(AssertUnwindSafe(|| {
                             window.with_paint_transform(PaintTransform::scale(0.5), |window| {
                                 window.with_paint_transform(

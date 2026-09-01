@@ -1,7 +1,8 @@
 use crate::{
     AnyElement, AnyEntity, AnyWeakEntity, App, Bounds, ContentMask, Context, Element, ElementId,
     Entity, EntityId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, PaintIndex,
-    Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement, TextStyle, WeakEntity,
+    PaintTransform, Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement,
+    TextStyle, WeakEntity,
 };
 use crate::{Empty, Window};
 use anyhow::Result;
@@ -287,6 +288,7 @@ struct ViewElementState {
     paint_range: Range<PaintIndex>,
     cache_key: ViewElementCacheKey,
     accessed_entities: FxHashSet<EntityId>,
+    paint_transform: PaintTransform,
 }
 
 struct ViewElementCacheKey {
@@ -382,11 +384,13 @@ impl<V: View> Element for ViewElement<V> {
                     |element_state, window| {
                         let content_mask = window.content_mask();
                         let text_style = window.text_style();
+                        let paint_transform = window.paint_transform();
 
                         if let Some(mut element_state) = element_state
                             && element_state.cache_key.bounds == bounds
                             && element_state.cache_key.content_mask == content_mask
                             && element_state.cache_key.text_style == text_style
+                            && element_state.paint_transform == paint_transform
                             && !window.dirty_views.contains(&entity_id)
                             && !window.refreshing
                             // Accessibility nodes are rebuilt from scratch every frame and are not
@@ -432,6 +436,7 @@ impl<V: View> Element for ViewElement<V> {
                                     content_mask,
                                     text_style,
                                 },
+                                paint_transform,
                             },
                         )
                     },
@@ -476,11 +481,17 @@ impl<V: View> Element for ViewElement<V> {
                                 element.paint(window, cx);
                                 window.refreshing = refreshing;
                             } else {
+                                assert_eq!(
+                                    element_state.paint_transform,
+                                    window.paint_transform(),
+                                    "a cached paint range cannot be replayed under a different paint transform"
+                                );
                                 window.reuse_paint(element_state.paint_range.clone());
                             }
 
                             let paint_end = window.paint_index();
                             element_state.paint_range = paint_start..paint_end;
+                            element_state.paint_transform = window.paint_transform();
 
                             ((), element_state)
                         },

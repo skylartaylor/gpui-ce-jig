@@ -272,13 +272,13 @@ impl Window {
 mod tests {
     use super::*;
     use crate::{
-        self as gpui, AnyElement, App, AppContext as _, Bounds, BoxShadow, Corners, DevicePixels,
-        DrawPhase, Drawable, Edges, Element, ElementId, Filter, Font, FontId, FontRun,
-        GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
-        LineLayout, NoopTextSystem, ParentElement, PlatformTextSystem, RenderGlyphParams, Size,
-        Styled, TestAppContext, TestDispatcher, TextRenderingMode, UnderlineStyle,
-        VisualTestContext, anchored, canvas, deferred, div, fill, hsla, point, px, scene::Scene,
-        size,
+        self as gpui, AnyElement, AnyView, App, AppContext as _, Bounds, BoxShadow, Context,
+        Corners, DevicePixels, DrawPhase, Drawable, Edges, Element, ElementId, Filter, Font,
+        FontId, FontRun, GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId, IntoElement,
+        LayoutId, LineLayout, NoopTextSystem, ParentElement, PlatformTextSystem, Render,
+        RenderGlyphParams, Size, StyleRefinement, Styled, TestAppContext, TestDispatcher,
+        TextRenderingMode, UnderlineStyle, VisualTestContext, anchored, canvas, deferred, div,
+        fill, hsla, point, px, scene::Scene, size,
     };
     use anyhow::Result;
     use std::{borrow::Cow, cell::Cell, panic::AssertUnwindSafe, rc::Rc, sync::Arc};
@@ -737,6 +737,102 @@ mod tests {
         );
 
         assert_close(quad.bounds, device(60., 120., 100., 60.));
+    }
+
+    struct CachedLeaf {
+        renders: Rc<Cell<usize>>,
+        deferred: bool,
+    }
+
+    impl Render for CachedLeaf {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.renders.set(self.renders.get() + 1);
+            let child = painter(|window, _| {
+                window.paint_quad(fill(logical(0., 0., 40., 20.), hsla(0.5, 0.5, 0.5, 1.)));
+            });
+            if self.deferred {
+                deferred(child).into_any_element()
+            } else {
+                child.into_any_element()
+            }
+        }
+    }
+
+    struct CachingRoot {
+        leaf: crate::Entity<CachedLeaf>,
+        scale: f32,
+        declare: bool,
+    }
+
+    impl Render for CachingRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let child = AnyView::from(self.leaf.clone())
+                .cached(StyleRefinement::default().w(px(40.)).h(px(20.)));
+            if self.declare {
+                transformed_and_declared(PaintTransform::scale(self.scale), child)
+                    .into_any_element()
+            } else {
+                transformed(PaintTransform::scale(self.scale), child).into_any_element()
+            }
+        }
+    }
+
+    fn widest_quad(cx: &mut VisualTestContext) -> f32 {
+        cx.update(|window, _| {
+            window
+                .rendered_frame
+                .scene
+                .quads
+                .iter()
+                .map(|quad| quad.bounds.size.width.0)
+                .fold(0.0, f32::max)
+        })
+    }
+
+    fn assert_cached_transform_behavior(cx: &mut TestAppContext, declare: bool, deferred: bool) {
+        let renders = Rc::new(Cell::new(0));
+        let leaf = cx.new(|_| CachedLeaf {
+            renders: renders.clone(),
+            deferred,
+        });
+        let (root, visual) = cx.add_window_view(|_, _| CachingRoot {
+            leaf,
+            scale: 2.0,
+            declare,
+        });
+        visual.run_until_parked();
+
+        assert_eq!(widest_quad(visual), 160.0);
+        let first_frame = renders.get();
+        root.update(visual, |_, cx| cx.notify());
+        visual.run_until_parked();
+        if declare {
+            assert_eq!(renders.get(), first_frame);
+        } else {
+            assert!(renders.get() > first_frame);
+        }
+        assert_eq!(widest_quad(visual), 160.0);
+
+        let before_change = renders.get();
+        root.update(visual, |root, cx| {
+            root.scale = 3.0;
+            cx.notify();
+        });
+        visual.run_until_parked();
+        assert!(renders.get() > before_change);
+        assert_eq!(widest_quad(visual), 240.0);
+    }
+
+    #[gpui::test]
+    fn cached_views_reuse_only_at_the_recorded_transform(cx: &mut TestAppContext) {
+        for declare in [false, true] {
+            assert_cached_transform_behavior(cx, declare, false);
+        }
+    }
+
+    #[gpui::test]
+    fn deferred_paint_ranges_reuse_only_at_their_captured_transform(cx: &mut TestAppContext) {
+        assert_cached_transform_behavior(cx, true, true);
     }
 
     struct SquareGlyphTextSystem;

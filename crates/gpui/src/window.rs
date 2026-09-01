@@ -3300,8 +3300,8 @@ impl Window {
             let paint_transform = deferred_draw.paint_transform;
             if let Some(element) = deferred_draw.element.as_mut() {
                 self.with_rendered_view(deferred_draw.current_view, |window| {
-                    window.with_content_mask(content_mask, |window| {
-                        window.with_absolute_paint_transform(paint_transform, true, |window| {
+                    window.with_absolute_paint_transform(paint_transform, true, |window| {
+                        window.with_content_mask(content_mask, |window| {
                             window.with_rem_size(Some(deferred_draw.rem_size), |window| {
                                 element.paint(window, cx);
                             });

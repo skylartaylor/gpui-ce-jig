@@ -272,9 +272,9 @@ impl Window {
 mod tests {
     use super::*;
     use crate::{
-        self as gpui, AnyElement, AnyView, App, AppContext as _, Bounds, BoxShadow, Context,
-        Corners, DevicePixels, DrawPhase, Drawable, Edges, Element, ElementId, Filter, Font,
-        FontId, FontRun, GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId,
+        self as gpui, AnyElement, AnyView, App, AppContext as _, Bounds, BoxShadow, ContentMask,
+        Context, Corners, DevicePixels, DrawPhase, Drawable, Edges, Element, ElementId, Filter,
+        Font, FontId, FontRun, GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId,
         InteractiveElement, IntoElement, LayoutId, LineLayout, NoopTextSystem, ParentElement,
         PlatformTextSystem, Render, RenderGlyphParams, Size, StatefulInteractiveElement,
         StyleRefinement, Styled, TestAppContext, TestDispatcher, TextRenderingMode, UnderlineStyle,
@@ -776,6 +776,71 @@ mod tests {
         );
     }
 
+    struct MaskedDeferred {
+        child: Option<AnyElement>,
+        mask: ContentMask<Pixels>,
+    }
+
+    impl Element for MaskedDeferred {
+        type RequestLayoutState = ();
+        type PrepaintState = ();
+
+        fn id(&self) -> Option<ElementId> {
+            None
+        }
+
+        fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+            None
+        }
+
+        fn request_layout(
+            &mut self,
+            _: Option<&GlobalElementId>,
+            _: Option<&InspectorElementId>,
+            window: &mut Window,
+            cx: &mut App,
+        ) -> (LayoutId, ()) {
+            (self.child.as_mut().unwrap().request_layout(window, cx), ())
+        }
+
+        fn prepaint(
+            &mut self,
+            _: Option<&GlobalElementId>,
+            _: Option<&InspectorElementId>,
+            _: Bounds<Pixels>,
+            _: &mut (),
+            window: &mut Window,
+            _: &mut App,
+        ) {
+            window.defer_draw(
+                self.child.take().unwrap(),
+                window.element_offset(),
+                0,
+                Some(self.mask),
+            );
+        }
+
+        fn paint(
+            &mut self,
+            _: Option<&GlobalElementId>,
+            _: Option<&InspectorElementId>,
+            _: Bounds<Pixels>,
+            _: &mut (),
+            _: &mut (),
+            _: &mut Window,
+            _: &mut App,
+        ) {
+        }
+    }
+
+    impl IntoElement for MaskedDeferred {
+        type Element = Self;
+
+        fn into_element(self) -> Self::Element {
+            self
+        }
+    }
+
     #[gpui::test]
     fn deferred_draws_capture_their_declared_transform(cx: &mut TestAppContext) {
         let cx = cx.add_empty_window();
@@ -801,6 +866,39 @@ mod tests {
         );
 
         assert_close(quad.bounds, device(60., 120., 100., 60.));
+    }
+
+    #[gpui::test]
+    fn deferred_draw_masks_follow_their_declared_transform(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let quad = draw_scene(
+            cx,
+            |_, _| {
+                transformed_and_declared(
+                    PaintTransform {
+                        scale: 0.5,
+                        translation: point(px(10.), px(20.)),
+                    },
+                    MaskedDeferred {
+                        child: Some(
+                            painter(|window, _| {
+                                window.paint_quad(fill(
+                                    logical(40., 80., 100., 60.),
+                                    hsla(0.5, 0.5, 0.5, 1.),
+                                ));
+                            })
+                            .into_any_element(),
+                        ),
+                        mask: ContentMask {
+                            bounds: logical(20., 70., 50., 40.),
+                        },
+                    },
+                )
+            },
+            |scene| scene.quads[0],
+        );
+
+        assert_close(quad.content_mask.bounds, device(40., 110., 50., 40.));
     }
 
     struct CachedLeaf {

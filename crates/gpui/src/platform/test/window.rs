@@ -51,7 +51,7 @@ impl HasWindowHandle for TestWindow {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -59,7 +59,7 @@ impl HasDisplayHandle for TestWindow {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -414,6 +414,36 @@ impl PlatformWindow for TestWindow {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{EmptyView, TestAppContext};
+
+    #[test]
+    fn test_window_handle_reports_not_supported() {
+        let mut cx = TestAppContext::single();
+        let handle: AnyWindowHandle = cx.add_window(|_, _| EmptyView).into();
+        let window = cx.test_window(handle);
+
+        assert!(matches!(
+            window.window_handle(),
+            Err(raw_window_handle::HandleError::NotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_display_handle_reports_not_supported() {
+        let mut cx = TestAppContext::single();
+        let handle: AnyWindowHandle = cx.add_window(|_, _| EmptyView).into();
+        let window = cx.test_window(handle);
+
+        assert!(matches!(
+            window.display_handle(),
+            Err(raw_window_handle::HandleError::NotSupported)
+        ));
     }
 }
 

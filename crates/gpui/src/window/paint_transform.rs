@@ -274,11 +274,12 @@ mod tests {
     use crate::{
         self as gpui, AnyElement, AnyView, App, AppContext as _, Bounds, BoxShadow, Context,
         Corners, DevicePixels, DrawPhase, Drawable, Edges, Element, ElementId, Filter, Font,
-        FontId, FontRun, GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId, IntoElement,
-        LayoutId, LineLayout, NoopTextSystem, ParentElement, PlatformTextSystem, Render,
-        RenderGlyphParams, Size, StyleRefinement, Styled, TestAppContext, TestDispatcher,
-        TextRenderingMode, UnderlineStyle, VisualTestContext, anchored, canvas, deferred, div,
-        fill, hsla, point, px, scene::Scene, size,
+        FontId, FontRun, GlobalElementId, GlyphId, HitboxBehavior, InspectorElementId,
+        InteractiveElement, IntoElement, LayoutId, LineLayout, NoopTextSystem, ParentElement,
+        PlatformTextSystem, Render, RenderGlyphParams, Size, StatefulInteractiveElement,
+        StyleRefinement, Styled, TestAppContext, TestDispatcher, TextRenderingMode, UnderlineStyle,
+        VisualTestContext, anchored, canvas, deferred, div, fill, hsla, point, px, scene::Scene,
+        size,
     };
     use anyhow::Result;
     use std::{borrow::Cow, cell::Cell, panic::AssertUnwindSafe, rc::Rc, sync::Arc};
@@ -710,6 +711,51 @@ mod tests {
         let (bounds, mask) = recorded.get().unwrap();
         assert_eq!(bounds, logical(0., 0., 200., 200.));
         assert_eq!(mask, logical(0., 0., 50., 50.));
+    }
+
+    struct AccessibilityBoundsRoot;
+
+    impl Render for AccessibilityBoundsRoot {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(transformed_and_declared(
+                PaintTransform {
+                    scale: 0.5,
+                    translation: point(px(10.), px(20.)),
+                },
+                div()
+                    .id("paint-transform-a11y")
+                    .role(accesskit::Role::Button)
+                    .absolute()
+                    .left(px(40.))
+                    .top(px(80.))
+                    .w(px(100.))
+                    .h(px(60.)),
+            ))
+        }
+    }
+
+    #[gpui::test]
+    fn accessibility_bounds_remain_in_layout_space(cx: &mut TestAppContext) {
+        let (_, visual) = cx.add_window_view(|_, _| AccessibilityBoundsRoot);
+        assert!(visual.activate_a11y().is_some());
+        let updates = visual.take_a11y_tree_updates();
+        let node = updates
+            .last()
+            .expect("missing finalized accessibility update")
+            .nodes
+            .iter()
+            .find_map(|(_, node)| (node.role() == accesskit::Role::Button).then_some(node))
+            .expect("missing transformed button accessibility node");
+
+        assert_eq!(
+            node.bounds(),
+            Some(accesskit::Rect {
+                x0: 80.0,
+                y0: 160.0,
+                x1: 280.0,
+                y1: 280.0,
+            })
+        );
     }
 
     #[gpui::test]

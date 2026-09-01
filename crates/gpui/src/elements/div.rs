@@ -1337,6 +1337,18 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
 
+    /// Set the author-provided identifier exposed to accessibility clients.
+    ///
+    /// This is external identity, distinct from GPUI's internal element ID. It
+    /// is emitted only when the element also has a stable [element
+    /// ID][InteractiveElement::id] and a non-`GenericContainer` [`role`](Self::role).
+    /// Consumers are responsible for keeping the value stable and unique within
+    /// one accessibility tree.
+    fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.interactivity().aria.author_id = Some(id.into());
+        self
+    }
+
     /// Set the accessible label for this element.
     fn aria_label(mut self, label: impl Into<SharedString>) -> Self {
         self.interactivity().aria.label = Some(label.into());
@@ -2091,6 +2103,7 @@ impl IntoElement for Div {
 
 #[derive(Default)]
 pub(crate) struct AriaProperties {
+    pub(crate) author_id: Option<SharedString>,
     pub(crate) label: Option<SharedString>,
     pub(crate) description: Option<SharedString>,
     pub(crate) keyshortcuts: Option<SharedString>,
@@ -3554,6 +3567,9 @@ impl Interactivity {
     }
 
     pub(crate) fn write_a11y_info(&self, node: &mut accesskit::Node) {
+        if let Some(id) = &self.aria.author_id {
+            node.set_author_id(id.to_string());
+        }
         if let Some(label) = &self.aria.label {
             node.set_label(label.to_string());
         }
@@ -4887,8 +4903,24 @@ mod tests {
     }
 
     #[test]
+    fn test_accessibility_id_builder_writes_author_id() {
+        let mut with_id = div()
+            .id("buffer-font-size")
+            .accessibility_id("settings.buffer-font-size");
+        let mut with_id_node = accesskit::Node::new(accesskit::Role::SpinButton);
+        with_id.interactivity().write_a11y_info(&mut with_id_node);
+        assert_eq!(with_id_node.author_id(), Some("settings.buffer-font-size"));
+
+        let mut omitted = div();
+        let mut omitted_node = accesskit::Node::new(accesskit::Role::SpinButton);
+        omitted.interactivity().write_a11y_info(&mut omitted_node);
+        assert_eq!(omitted_node.author_id(), None);
+    }
+
+    #[test]
     fn test_write_a11y_info_string_and_numeric_properties() {
         let mut interactivity = Interactivity::default();
+        interactivity.aria.author_id = Some("settings.buffer-font-size".into());
         interactivity.aria.label = Some("Buffer Font Size".into());
         interactivity.aria.value = Some("15".into());
         interactivity.aria.placeholder = Some("Search".into());
@@ -4900,6 +4932,7 @@ mod tests {
         let mut node = accesskit::Node::new(accesskit::Role::SpinButton);
         interactivity.write_a11y_info(&mut node);
 
+        assert_eq!(node.author_id(), Some("settings.buffer-font-size"));
         assert_eq!(node.label(), Some("Buffer Font Size"));
         assert_eq!(node.value(), Some("15"));
         assert_eq!(node.placeholder(), Some("Search"));

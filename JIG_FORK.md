@@ -4,15 +4,19 @@
 
 - Upstream repository: `gpui-ce/gpui-ce`
 - Selected base: `f2de912c5831d41d7aa6d9938f78969e49c7604d`
-- Integration branch: `integration/jig-runtime-refresh`
-- Companion component revision: pending synchronized integration
-- Consumer revisions and adopted tag: pending proof gates
+- Published candidate branch: `jig/runtime-refresh-2026-09`
+- Companion component revision: `ab22b497153eb84f426a137b52d37d9afc2bbc39`
+- Companion adopted tag: `jig-adopted/component-2026-09-01.1`
+- Companion reviewed candidate: `47d393cf3c55f38818bf332da49442e731c30e9c`
+- Companion reviewed and adopted tree: `fe0d782f0b30400715427b4c20798d9cc6dd76cc`
+- Reviewed paired runtime code head: `7bcc3ebc46d88f4c4c4fc21365825fe3dff2054b`
+- Consumer revisions and runtime adopted tag: pending exact-head proof gates
 
-This branch is an unpublished implementation candidate. Publication was not
-authorized, so the upstream references below remain required adoption gates.
-Do not pin a consumer until every retained patch has a durable upstream URL or
-is explicitly classified as Jig-specific, the synchronized component revision
-is recorded, and the reviewed verification matrix is green.
+The component fork is adopted at the immutable revision and tag above. The
+runtime candidate is published for integration and review but is not yet
+adopted. Do not pin a consumer until the final runtime pull request, exact-head
+CI, security audit, and consumer proof gates are green and the runtime receives
+its own non-moving adopted tag.
 
 ## Retained patches
 
@@ -25,6 +29,7 @@ is recorded, and the reviewed verification matrix is green.
 | Layout-stable uniform paint transforms | Jig-specific until proposed upstream | Window paint conversion, scene geometry, deferred draws, and view/deferred paint-cache identity | Focused matrix covers composition, unwind restoration, primitives, clips, filters, sprite origins/extents, deferred replay, cache invalidation, hitboxes, and layout-space accessibility bounds | Jig's `lift()` adapter requires the public transform scope and value API | Remove only when upstream provides equivalent paint-only uniform transforms across every covered path and Jig's unchanged consumer matrix passes |
 | Spring integration primitives | Proposed upstream; URL required before adoption | Pure animation state in `spring.rs` and GPUI exports | Analytic integration, target convergence, and target-type tests | Current Longbridge component motion APIs import `SpringConfig`, `SpringState`, and `SpringTarget` | Remove when the selected GPUI-CE base exports source- and behavior-equivalent spring primitives used by the synchronized component revision |
 | Synchronized repeating animations | Proposed upstream; URL required before adoption | App-owned animation epoch and repeating animation phase calculation | Focused tests cover common phase for late mounts and long-uptime precision | Current Longbridge shimmer requires `Animation::repeat_synced()` so independently mounted elements share phase | Remove when the selected GPUI-CE base exposes equivalent synchronized repeat semantics and the component shimmer path passes unchanged |
+| Opt-in native HTTP client | Jig-specific until proposed upstream | `gpui_ce_platform::NativeHttpClient` and explicit `Application::with_http_client` installation | Local-server tests cover status/body preservation, non-success responses, redirect modes, transport errors, and persistent connection reuse | Remote component images require the consumer to opt into a native client; `application()` remains network-disabled by default | Remove when upstream provides an equivalent opt-in native client with system proxy and TLS support without changing default application authority |
 
 ## Historical disposition
 
@@ -39,9 +44,10 @@ is recorded, and the reviewed verification matrix is green.
 
 ## Dependency and adoption gates
 
-The candidate must retain the current GPUI-CE package identities (`gpui-ce`,
-`gpui_ce_platform`, `gpui_ce_web`, and `gpui_ce_macros`) and use one immutable
-runtime revision throughout the companion component graph. Before adoption,
-record the exact component commit, target-aware positive and negative Cargo
-tree proofs, pull-request CI conclusions, security audit run, and the annotated
-non-moving adopted tag in this file.
+The candidate retains the current GPUI-CE package identities (`gpui-ce`,
+`gpui_ce_platform`, `gpui_ce_web`, and `gpui_ce_macros`). The adopted component
+revision is pinned as this repository's `crates/gpui_ce_components` gitlink and
+was reviewed against runtime code head `7bcc3ebc46d88f4c4c4fc21365825fe3dff2054b`.
+Runtime adoption still requires target-aware positive and negative Cargo tree
+proofs, exact-head pull-request CI conclusions, the security audit, consumer
+revision proofs, and an annotated non-moving runtime tag recorded here.

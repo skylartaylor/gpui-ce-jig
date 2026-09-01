@@ -7,10 +7,14 @@ on:
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.gitmodules'
+      - 'crates/gpui_ce_components'
   pull_request:
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+      - '.gitmodules'
+      - 'crates/gpui_ce_components'
   schedule:
     - cron: '0 0 * * 1'
   workflow_dispatch:

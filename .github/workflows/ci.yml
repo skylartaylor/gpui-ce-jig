@@ -116,17 +116,13 @@ jobs:
         with:
           submodules: recursive
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Check workspace lockfiles are up to date
+      - name: Check workspace lockfiles match their manifests
         run: |
-          cargo update
-          component_patch_args=(
-            --config 'patch.crates-io.gpui-ce.path="../gpui"'
-            --config 'patch.crates-io.gpui_ce_platform.path="../gpui_platform"'
-            --config 'patch.crates-io.gpui_ce_web.path="../gpui_web"'
-            --config 'patch.crates-io.gpui_ce_macros.path="../gpui_macros"'
-          )
-          (cd crates/gpui_ce_components && cargo "${component_patch_args[@]}" update)
-          git diff --exit-code Cargo.lock crates/gpui_ce_components/Cargo.lock
+          cargo metadata --locked --format-version 1 > /dev/null
+          # Validate the component's declared registry graph. Local path
+          # patches intentionally rewrite registry source and checksum entries
+          # and are exercised by the component build and test jobs instead.
+          (cd crates/gpui_ce_components && cargo metadata --locked --format-version 1 > /dev/null)
 
   # Unused dependencies
   machete:

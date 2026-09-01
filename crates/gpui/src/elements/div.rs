@@ -1364,6 +1364,16 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self
     }
 
+    /// Report whether this element's current value is invalid.
+    ///
+    /// `false` omits the AccessKit property, allowing a later render to clear a
+    /// previously emitted invalid state. Observable emission requires an
+    /// element ID and a non-`GenericContainer` [`role`](Self::role).
+    fn aria_invalid(mut self, invalid: bool) -> Self {
+        self.interactivity().aria.invalid = invalid.then_some(accesskit::Invalid::True);
+        self
+    }
+
     /// Set the keyboard shortcut(s) that activate this element, announced by
     /// assistive technology (maps to AccessKit's `keyboard_shortcut`).
     ///
@@ -2106,6 +2116,7 @@ pub(crate) struct AriaProperties {
     pub(crate) author_id: Option<SharedString>,
     pub(crate) label: Option<SharedString>,
     pub(crate) description: Option<SharedString>,
+    pub(crate) invalid: Option<accesskit::Invalid>,
     pub(crate) keyshortcuts: Option<SharedString>,
     pub(crate) selected: Option<bool>,
     pub(crate) expanded: Option<bool>,
@@ -3576,6 +3587,9 @@ impl Interactivity {
         if let Some(description) = &self.aria.description {
             node.set_description(description.to_string());
         }
+        if let Some(invalid) = self.aria.invalid {
+            node.set_invalid(invalid);
+        }
         if let Some(keyshortcuts) = &self.aria.keyshortcuts {
             node.set_keyboard_shortcut(keyshortcuts.to_string());
         }
@@ -4918,10 +4932,24 @@ mod tests {
     }
 
     #[test]
+    fn test_aria_invalid_builder_omits_false_state() {
+        let mut invalid = div().id("invalid-field").aria_invalid(true);
+        let mut invalid_node = accesskit::Node::new(accesskit::Role::TextInput);
+        invalid.interactivity().write_a11y_info(&mut invalid_node);
+        assert_eq!(invalid_node.invalid(), Some(accesskit::Invalid::True));
+
+        let mut valid = div().id("valid-field").aria_invalid(false);
+        let mut valid_node = accesskit::Node::new(accesskit::Role::TextInput);
+        valid.interactivity().write_a11y_info(&mut valid_node);
+        assert_eq!(valid_node.invalid(), None);
+    }
+
+    #[test]
     fn test_write_a11y_info_string_and_numeric_properties() {
         let mut interactivity = Interactivity::default();
         interactivity.aria.author_id = Some("settings.buffer-font-size".into());
         interactivity.aria.label = Some("Buffer Font Size".into());
+        interactivity.aria.invalid = Some(accesskit::Invalid::True);
         interactivity.aria.value = Some("15".into());
         interactivity.aria.placeholder = Some("Search".into());
         interactivity.aria.numeric_value = Some(15.0);
@@ -4934,6 +4962,7 @@ mod tests {
 
         assert_eq!(node.author_id(), Some("settings.buffer-font-size"));
         assert_eq!(node.label(), Some("Buffer Font Size"));
+        assert_eq!(node.invalid(), Some(accesskit::Invalid::True));
         assert_eq!(node.value(), Some("15"));
         assert_eq!(node.placeholder(), Some("Search"));
         assert_eq!(node.numeric_value(), Some(15.0));

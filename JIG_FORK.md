@@ -5,11 +5,11 @@
 - Upstream repository: `gpui-ce/gpui-ce`
 - Selected base: `f2de912c5831d41d7aa6d9938f78969e49c7604d`
 - Published candidate branch: `jig/runtime-refresh-2026-09`
-- Companion component revision: `10af28396e3d34145a287f1060ebb48dbd7abf2c`
-- Companion adopted tag: `jig-adopted/component-2026-09-01.2`
-- Companion adopted tag object: `a1921918cae16d82e114c0fcd3ca00840753c51d`
-- Companion reviewed candidate: `79c141b428f5d008e5b3c6d5b242afc5bdf04757`
-- Companion reviewed and adopted tree: `b5a9c192215b7461a4c8d4ec11fa5a26e1e61865`
+- Companion component revision: `6a27bbc0b1ed912d99c7a2049f27a183800080cb`
+- Companion adopted tag: `jig-adopted/component-2026-09-01.3`
+- Companion adopted tag object: `bc5b8080812da1fb40de2d68dc4cd20fb0e5558c`
+- Companion reviewed candidate: `601755c2dc4657c41829e2b9f6194682e2304940`
+- Companion reviewed and adopted tree: `63c5f92d624276fd8950ab5f2aedf7e0c4a1306a`
 - Reviewed paired runtime code head: `781c86514dff3e667b672047bb76cef440d3f22e`
 - Consumer revisions and runtime adopted tag: pending exact-head proof gates
 

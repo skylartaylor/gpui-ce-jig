@@ -1,7 +1,8 @@
 use crate::{
     AnyElement, AnyEntity, AnyWeakEntity, App, Bounds, ContentMask, Context, Element, ElementId,
     Entity, EntityId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, PaintIndex,
-    Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement, TextStyle, WeakEntity,
+    PaintTransform, Pixels, PrepaintStateIndex, Render, RenderOnce, Style, StyleRefinement,
+    TextStyle, WeakEntity,
 };
 use crate::{Empty, Window};
 use anyhow::Result;
@@ -287,6 +288,7 @@ struct ViewElementState {
     paint_range: Range<PaintIndex>,
     cache_key: ViewElementCacheKey,
     accessed_entities: FxHashSet<EntityId>,
+    paint_transform: PaintTransform,
 }
 
 struct ViewElementCacheKey {
@@ -382,13 +384,19 @@ impl<V: View> Element for ViewElement<V> {
                     |element_state, window| {
                         let content_mask = window.content_mask();
                         let text_style = window.text_style();
+                        let paint_transform = window.paint_transform();
 
                         if let Some(mut element_state) = element_state
                             && element_state.cache_key.bounds == bounds
                             && element_state.cache_key.content_mask == content_mask
                             && element_state.cache_key.text_style == text_style
+                            && element_state.paint_transform == paint_transform
                             && !window.dirty_views.contains(&entity_id)
                             && !window.refreshing
+                            // Accessibility nodes are rebuilt from scratch every frame and are not
+                            // part of the cached prepaint range. Rebuild this subtree while
+                            // accessibility is active so the full tree remains complete.
+                            && !window.is_a11y_active()
                         {
                             let prepaint_start = window.prepaint_index();
                             window.reuse_prepaint(element_state.prepaint_range.clone());
@@ -428,6 +436,7 @@ impl<V: View> Element for ViewElement<V> {
                                     content_mask,
                                     text_style,
                                 },
+                                paint_transform,
                             },
                         )
                     },
@@ -472,11 +481,17 @@ impl<V: View> Element for ViewElement<V> {
                                 element.paint(window, cx);
                                 window.refreshing = refreshing;
                             } else {
+                                assert_eq!(
+                                    element_state.paint_transform,
+                                    window.paint_transform(),
+                                    "a cached paint range cannot be replayed under a different paint transform"
+                                );
                                 window.reuse_paint(element_state.paint_range.clone());
                             }
 
                             let paint_end = window.paint_index();
                             element_state.paint_range = paint_start..paint_end;
+                            element_state.paint_transform = window.paint_transform();
 
                             ((), element_state)
                         },
@@ -503,5 +518,121 @@ pub struct EmptyView;
 impl Render for EmptyView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         Empty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        AppContext as _, InteractiveElement as _, ParentElement as _,
+        StatefulInteractiveElement as _, Styled as _, TestAppContext, div,
+    };
+    use std::{cell::Cell, rc::Rc};
+
+    struct AccessibleCachedView {
+        invalid: bool,
+        render_count: Rc<Cell<usize>>,
+    }
+
+    impl Render for AccessibleCachedView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            self.render_count.set(self.render_count.get() + 1);
+            div()
+                .id("cached-field")
+                .role(accesskit::Role::TextInput)
+                .accessibility_id("cached-field")
+                .aria_invalid(self.invalid)
+        }
+    }
+
+    struct CachedRootView {
+        child: Entity<AccessibleCachedView>,
+    }
+
+    impl Render for CachedRootView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().child(
+                self.child
+                    .clone()
+                    .cached(StyleRefinement::default().size_full()),
+            )
+        }
+    }
+
+    fn node_with_author_id<'a>(
+        update: &'a accesskit::TreeUpdate,
+        author_id: &str,
+    ) -> Option<(accesskit::NodeId, &'a accesskit::Node)> {
+        update
+            .nodes
+            .iter()
+            .find(|(_, node)| node.author_id() == Some(author_id))
+            .map(|(id, node)| (*id, node))
+    }
+
+    #[gpui::test]
+    fn test_accessibility_survives_cached_view_frames(cx: &mut TestAppContext) {
+        let render_count = Rc::new(Cell::new(0));
+        let (root, cx) = cx.add_window_view(|_, cx| {
+            let child = cx.new(|_| AccessibleCachedView {
+                invalid: true,
+                render_count: render_count.clone(),
+            });
+            CachedRootView { child }
+        });
+
+        assert!(cx.activate_a11y().is_some());
+        let first_updates = cx.take_a11y_tree_updates();
+        let first_update = first_updates
+            .last()
+            .expect("missing first full tree update");
+        let (first_id, first_node) = node_with_author_id(first_update, "cached-field")
+            .expect("identified control missing from first tree update");
+        assert_eq!(first_node.invalid(), Some(accesskit::Invalid::True));
+
+        let count_before_root_refresh = render_count.get();
+        root.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+
+        let second_updates = cx.take_a11y_tree_updates();
+        let second_update = second_updates
+            .last()
+            .expect("missing cached-frame tree update");
+        let (second_id, second_node) = node_with_author_id(second_update, "cached-field")
+            .expect("identified control missing from cached-frame tree update");
+        assert_eq!(second_id, first_id);
+        assert_eq!(second_node.invalid(), Some(accesskit::Invalid::True));
+        assert!(
+            render_count.get() > count_before_root_refresh,
+            "accessible cached views must render while accessibility is active"
+        );
+
+        root.update(cx, |root, cx| {
+            root.child.update(cx, |child, cx| {
+                child.invalid = false;
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+
+        let valid_updates = cx.take_a11y_tree_updates();
+        let valid_update = valid_updates
+            .last()
+            .expect("missing valid-state tree update");
+        let (valid_id, valid_node) = node_with_author_id(valid_update, "cached-field")
+            .expect("identified control missing after clearing invalid state");
+        assert_eq!(valid_id, first_id);
+        assert_eq!(valid_node.invalid(), None);
+
+        cx.deactivate_a11y();
+        let count_before_inactive_refresh = render_count.get();
+        root.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert_eq!(
+            render_count.get(),
+            count_before_inactive_refresh,
+            "cached-view reuse should resume when accessibility is inactive"
+        );
     }
 }

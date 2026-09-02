@@ -156,10 +156,23 @@ impl AppContext for TestAppContext {
 impl TestAppContext {
     /// Creates a new `TestAppContext`. Usually you can rely on `#[gpui::test]` to do this for you.
     pub fn build(dispatcher: TestDispatcher, fn_name: Option<&'static str>) -> Self {
+        Self::build_with_text_system(dispatcher, fn_name, Arc::new(crate::NoopTextSystem))
+    }
+
+    /// Creates a test context backed by a caller-supplied platform text system.
+    pub(crate) fn build_with_text_system(
+        dispatcher: TestDispatcher,
+        fn_name: Option<&'static str>,
+        platform_text_system: Arc<dyn crate::PlatformTextSystem>,
+    ) -> Self {
         let arc_dispatcher = Arc::new(dispatcher.clone());
         let background_executor = BackgroundExecutor::new(arc_dispatcher.clone());
         let foreground_executor = ForegroundExecutor::new(arc_dispatcher);
-        let platform = TestPlatform::new(background_executor.clone(), foreground_executor.clone());
+        let platform = TestPlatform::with_text_system(
+            background_executor.clone(),
+            foreground_executor.clone(),
+            platform_text_system,
+        );
         let asset_source = Arc::new(());
         let http_client = crate::http_client::FakeHttpClient::with_404_response();
         let text_system = Arc::new(TextSystem::new(platform.text_system()));
@@ -818,6 +831,34 @@ impl VisualTestContext {
             .lock()
             .document_path
             .clone()
+    }
+
+    /// Activate accessibility through the test platform's adapter lifecycle.
+    ///
+    /// Returns the adapter's initial root-only update. Subsequent finalized
+    /// frame updates can be retrieved with [`Self::take_a11y_tree_updates`].
+    pub fn activate_a11y(&mut self) -> Option<accesskit::TreeUpdate> {
+        let update = self.cx.test_window(self.window).simulate_a11y_activation();
+        self.run_until_parked();
+        update
+    }
+
+    /// Deactivate accessibility through the test platform's adapter lifecycle.
+    pub fn deactivate_a11y(&mut self) {
+        self.cx
+            .test_window(self.window)
+            .simulate_a11y_deactivation();
+        self.run_until_parked();
+    }
+
+    /// Drain the finalized accessibility tree updates emitted by this window.
+    pub fn take_a11y_tree_updates(&mut self) -> Vec<accesskit::TreeUpdate> {
+        self.cx.test_window(self.window).take_a11y_tree_updates()
+    }
+
+    /// Return the AccessKit identity derived from a GPUI global element identity.
+    pub fn accesskit_node_id(global_id: &crate::GlobalElementId) -> accesskit::NodeId {
+        global_id.accesskit_node_id()
     }
 
     /// Simulate a sequence of keystrokes `cx.simulate_keystrokes("cmd-p escape")`

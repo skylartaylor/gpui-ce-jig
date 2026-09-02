@@ -60,17 +60,25 @@ impl DurationWithEasing for Duration {
 
 /// Maps linear progress to eased progress.
 #[derive(Clone)]
-pub struct Easing(Rc<dyn Fn(f32) -> f32>);
+pub struct Easing {
+    function: Rc<dyn Fn(f32) -> f32>,
+    // Animation is publicly constructible, so scheduling metadata lives in its
+    // existing opaque easing value to preserve exhaustive struct literals.
+    synced: bool,
+}
 
 impl Easing {
     /// Creates an easing function.
     pub fn new(easing: impl Fn(f32) -> f32 + 'static) -> Self {
-        Self(Rc::new(easing))
+        Self {
+            function: Rc::new(easing),
+            synced: false,
+        }
     }
 
     /// Evaluates this easing function with normalized progress.
     pub fn sample(&self, progress: Progress) -> Progress {
-        let eased = (self.0)(progress.get());
+        let eased = (self.function)(progress.get());
 
         debug_assert!(
             Progress::contains(eased),
@@ -78,6 +86,18 @@ impl Easing {
         );
 
         Progress::clamped(eased)
+    }
+
+    pub(crate) fn replace(&mut self, easing: impl Fn(f32) -> f32 + 'static) {
+        self.function = Rc::new(easing);
+    }
+
+    pub(crate) fn set_synced(&mut self) {
+        self.synced = true;
+    }
+
+    pub(crate) fn is_synced(&self) -> bool {
+        self.synced
     }
 }
 
@@ -133,7 +153,7 @@ impl Motion {
 
     /// Replaces the linear easing function.
     pub fn with_easing(mut self, easing: impl Fn(f32) -> f32 + 'static) -> Self {
-        self.easing = Easing::new(easing);
+        self.easing.replace(easing);
         self
     }
 

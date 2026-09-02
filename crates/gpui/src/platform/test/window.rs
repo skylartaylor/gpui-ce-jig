@@ -1,5 +1,5 @@
 use crate::{
-    AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DevicePixels,
+    A11yCallbacks, AnyWindowHandle, AtlasKey, AtlasTextureId, AtlasTile, Bounds, DevicePixels,
     DispatchEventResult, GpuSpecs, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformHeadlessRenderer, PlatformInput, PlatformInputHandler, PlatformWindow, Point,
     PromptButton, RequestFrameOptions, Scene, Size, TestPlatform, TileId, WindowAppearance,
@@ -40,6 +40,8 @@ pub(crate) struct TestWindowState {
     appearance: WindowAppearance,
     external_drag_files: Vec<(PathBuf, bool)>,
     start_external_drag_result: bool,
+    a11y_callbacks: Option<A11yCallbacks>,
+    a11y_tree_updates: Vec<accesskit::TreeUpdate>,
 }
 
 #[derive(Clone)]
@@ -49,7 +51,7 @@ impl HasWindowHandle for TestWindow {
     fn window_handle(
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -57,7 +59,7 @@ impl HasDisplayHandle for TestWindow {
     fn display_handle(
         &self,
     ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        unimplemented!("Test Windows are not backed by a real platform window")
+        Err(raw_window_handle::HandleError::NotSupported)
     }
 }
 
@@ -96,6 +98,8 @@ impl TestWindow {
             appearance: WindowAppearance::Light,
             external_drag_files: Vec::new(),
             start_external_drag_result: false,
+            a11y_callbacks: None,
+            a11y_tree_updates: Vec::new(),
         })))
     }
 
@@ -150,6 +154,25 @@ impl TestWindow {
 
     pub fn set_start_external_drag_result(&self, result: bool) {
         self.0.lock().start_external_drag_result = result;
+    }
+
+    pub(crate) fn simulate_a11y_activation(&self) -> Option<accesskit::TreeUpdate> {
+        let callbacks = self.0.lock().a11y_callbacks.take()?;
+        let initial_update = (callbacks.activation)();
+        self.0.lock().a11y_callbacks = Some(callbacks);
+        initial_update
+    }
+
+    pub(crate) fn simulate_a11y_deactivation(&self) {
+        let Some(callbacks) = self.0.lock().a11y_callbacks.take() else {
+            return;
+        };
+        (callbacks.deactivation)();
+        self.0.lock().a11y_callbacks = Some(callbacks);
+    }
+
+    pub(crate) fn take_a11y_tree_updates(&self) -> Vec<accesskit::TreeUpdate> {
+        std::mem::take(&mut self.0.lock().a11y_tree_updates)
     }
 }
 
@@ -331,6 +354,14 @@ impl PlatformWindow for TestWindow {
         }
     }
 
+    fn a11y_init(&self, callbacks: A11yCallbacks) {
+        self.0.lock().a11y_callbacks = Some(callbacks);
+    }
+
+    fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {
+        self.0.lock().a11y_tree_updates.push(tree_update);
+    }
+
     fn sprite_atlas(&self) -> sync::Arc<dyn crate::PlatformAtlas> {
         self.0.lock().sprite_atlas.clone()
     }
@@ -383,6 +414,36 @@ impl PlatformWindow for TestWindow {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{EmptyView, TestAppContext};
+
+    #[test]
+    fn test_window_handle_reports_not_supported() {
+        let mut cx = TestAppContext::single();
+        let handle: AnyWindowHandle = cx.add_window(|_, _| EmptyView).into();
+        let window = cx.test_window(handle);
+
+        assert!(matches!(
+            window.window_handle(),
+            Err(raw_window_handle::HandleError::NotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_display_handle_reports_not_supported() {
+        let mut cx = TestAppContext::single();
+        let handle: AnyWindowHandle = cx.add_window(|_, _| EmptyView).into();
+        let window = cx.test_window(handle);
+
+        assert!(matches!(
+            window.display_handle(),
+            Err(raw_window_handle::HandleError::NotSupported)
+        ));
     }
 }
 

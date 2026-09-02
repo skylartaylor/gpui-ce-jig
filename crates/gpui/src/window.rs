@@ -62,9 +62,11 @@ use std::{
 use uuid::Uuid;
 
 pub(crate) mod a11y;
+mod paint_transform;
 mod prompts;
 
 pub use a11y::A11ySubtreeBuilder;
+pub use paint_transform::PaintTransform;
 
 use self::a11y::A11y;
 #[cfg(not(target_family = "wasm"))]
@@ -904,6 +906,8 @@ pub(crate) struct DeferredDraw {
     absolute_offset: Point<Pixels>,
     prepaint_range: Range<PrepaintStateIndex>,
     paint_range: Range<PaintIndex>,
+    paint_transform: PaintTransform,
+    painted_transform: Option<PaintTransform>,
 }
 
 pub(crate) struct Frame {
@@ -1096,6 +1100,7 @@ pub struct Window {
     pub(crate) element_offset_stack: Vec<Point<Pixels>>,
     pub(crate) element_opacity: f32,
     pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
+    pub(crate) paint_transform: PaintTransform,
     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
     pub(crate) image_cache_stack: Vec<AnyImageCache>,
     pub(crate) rendered_frame: Frame,
@@ -1844,6 +1849,7 @@ impl Window {
             rendered_entity_stack: Vec::new(),
             element_offset_stack: Vec::new(),
             content_mask_stack: Vec::new(),
+            paint_transform: PaintTransform::identity(),
             element_opacity: 1.0,
             requested_autoscroll: None,
             rendered_frame: Frame::new(DispatchTree::new(cx.keymap.clone(), cx.actions.clone())),
@@ -2688,6 +2694,11 @@ impl Window {
 
     #[inline]
     fn snap_bounds(&self, bounds: Bounds<Pixels>) -> Bounds<ScaledPixels> {
+        self.snap_bounds_untransformed(self.paint_transform.map_bounds(bounds))
+    }
+
+    #[inline]
+    fn snap_bounds_untransformed(&self, bounds: Bounds<Pixels>) -> Bounds<ScaledPixels> {
         let scale_factor = self.scale_factor();
         let left = round_to_device_pixel(bounds.left().0, scale_factor);
         let top = round_to_device_pixel(bounds.top().0, scale_factor);
@@ -2702,7 +2713,10 @@ impl Window {
     /// Rounds half-to-zero but clamps any non-zero input up to 1 dp so thin strokes do not disappear.
     #[inline]
     fn snap_stroke(&self, value: Pixels) -> ScaledPixels {
-        ScaledPixels(round_stroke_to_device_pixel(value.0, self.scale_factor()))
+        ScaledPixels(round_stroke_to_device_pixel(
+            value.0,
+            self.paint_transform_folded().0,
+        ))
     }
 
     #[inline]
@@ -2713,6 +2727,7 @@ impl Window {
     /// Floors the near edge and ceils the far edge, producing a strict superset of the raw region.
     #[inline]
     fn cover_bounds(&self, bounds: Bounds<Pixels>) -> Bounds<ScaledPixels> {
+        let bounds = self.paint_transform.map_bounds(bounds);
         let scale_factor = self.scale_factor();
         let left = floor_to_device_pixel(bounds.left().0, scale_factor);
         let top = floor_to_device_pixel(bounds.top().0, scale_factor);
@@ -2843,6 +2858,10 @@ impl Window {
         if !cx.mode.skip_drawing() {
             self.draw_roots(cx);
         }
+        debug_assert!(
+            self.paint_transform.is_identity(),
+            "a paint transform outlived the frame that pushed it"
+        );
         self.dirty_views.clear();
         self.next_frame.window_active = self.active.get();
 
@@ -3198,7 +3217,15 @@ impl Window {
             traversal_order.sort_by_key(|ix| self.next_frame.deferred_draws[*ix].priority);
 
             for deferred_draw_ix in traversal_order {
-                let (element, parent_node, current_view, rem_size, absolute_offset, prepaint_range) = {
+                let (
+                    element,
+                    parent_node,
+                    current_view,
+                    rem_size,
+                    absolute_offset,
+                    prepaint_range,
+                    paint_transform,
+                ) = {
                     let deferred_draw = &mut self.next_frame.deferred_draws[deferred_draw_ix];
                     self.element_id_stack
                         .clone_from(&deferred_draw.element_id_stack);
@@ -3211,6 +3238,7 @@ impl Window {
                         deferred_draw.rem_size,
                         deferred_draw.absolute_offset,
                         deferred_draw.prepaint_range.clone(),
+                        deferred_draw.paint_transform,
                     )
                 };
                 self.next_frame.dispatch_tree.set_active_node(parent_node);
@@ -3220,7 +3248,11 @@ impl Window {
                     self.with_rendered_view(current_view, |window| {
                         window.with_rem_size(Some(rem_size), |window| {
                             window.with_absolute_element_offset(absolute_offset, |window| {
-                                element.prepaint(window, cx);
+                                window.with_absolute_paint_transform(
+                                    paint_transform,
+                                    false,
+                                    |window| element.prepaint(window, cx),
+                                );
                             });
                         });
                     });
@@ -3265,15 +3297,24 @@ impl Window {
 
             let paint_start = self.paint_index();
             let content_mask = deferred_draw.content_mask;
+            let paint_transform = deferred_draw.paint_transform;
             if let Some(element) = deferred_draw.element.as_mut() {
                 self.with_rendered_view(deferred_draw.current_view, |window| {
-                    window.with_content_mask(content_mask, |window| {
-                        window.with_rem_size(Some(deferred_draw.rem_size), |window| {
-                            element.paint(window, cx);
+                    window.with_absolute_paint_transform(paint_transform, true, |window| {
+                        window.with_content_mask(content_mask, |window| {
+                            window.with_rem_size(Some(deferred_draw.rem_size), |window| {
+                                element.paint(window, cx);
+                            });
                         });
                     })
-                })
+                });
+                deferred_draw.painted_transform = Some(paint_transform);
             } else {
+                assert_eq!(
+                    deferred_draw.painted_transform,
+                    Some(paint_transform),
+                    "a deferred paint range cannot be replayed under a different paint transform"
+                );
                 self.reuse_paint(deferred_draw.paint_range.clone());
             }
             let paint_end = self.paint_index();
@@ -3348,6 +3389,8 @@ impl Window {
                     absolute_offset: deferred_draw.absolute_offset,
                     prepaint_range: deferred_draw.prepaint_range.clone(),
                     paint_range: deferred_draw.paint_range.clone(),
+                    paint_transform: deferred_draw.paint_transform,
+                    painted_transform: deferred_draw.painted_transform,
                 }),
         );
     }
@@ -3892,6 +3935,8 @@ impl Window {
             absolute_offset,
             prepaint_range: PrepaintStateIndex::default()..PrepaintStateIndex::default(),
             paint_range: PaintIndex::default()..PaintIndex::default(),
+            paint_transform: self.paint_transform,
+            painted_transform: None,
         });
     }
 
@@ -3933,7 +3978,7 @@ impl Window {
     ) {
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
+        let scale_factor = self.paint_transform_folded().0;
         let content_mask = self.snapped_content_mask();
         let opacity = self.element_opacity();
         let element_bounds = self.cover_bounds(bounds);
@@ -3969,7 +4014,7 @@ impl Window {
     ) {
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
+        let scale_factor = self.paint_transform_folded().0;
         let content_mask = self.snapped_content_mask();
         let opacity = self.element_opacity();
         let element_bounds = self.cover_bounds(bounds);
@@ -4020,7 +4065,7 @@ impl Window {
     ) {
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
+        let scale_factor = self.paint_transform_folded().0;
         let filters: SmallVec<[ScaledFilter; 4]> = filters
             .iter()
             .filter(|filter| !filter.is_identity())
@@ -4058,7 +4103,7 @@ impl Window {
     ) -> R {
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
+        let scale_factor = self.paint_transform_folded().0;
         let filters: SmallVec<[ScaledFilter; 4]> = filters
             .iter()
             .filter(|filter| !filter.is_identity())
@@ -4116,7 +4161,7 @@ impl Window {
             content_mask: self.snapped_content_mask(),
             background: quad.background.opacity(opacity),
             border_color: quad.border_color.opacity(opacity).into(),
-            corner_radii: quad.corner_radii.scale(self.scale_factor()),
+            corner_radii: quad.corner_radii.scale(self.paint_transform_folded().0),
             border_widths: snapped_border_widths,
             border_style: quad.border_style,
         };
@@ -4197,7 +4242,7 @@ impl Window {
     pub fn paint_path(&mut self, mut path: Path<Pixels>, color: impl Into<Background>) {
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
+        let (scale_factor, offset) = self.paint_transform_folded();
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
         path.content_mask = content_mask;
@@ -4205,7 +4250,7 @@ impl Window {
         path.color = color.opacity(opacity);
         self.next_frame
             .scene
-            .insert_primitive(path.scale(scale_factor));
+            .insert_primitive(path.scale(scale_factor).translate(offset));
     }
 
     /// Paint an underline into the scene for the next frame at the current z-index.
@@ -4220,6 +4265,7 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
+        let origin = self.paint_transform.map_point(origin);
         let thickness = self.snap_stroke(style.thickness);
         let height = if style.wavy {
             ScaledPixels(thickness.0 * 3.)
@@ -4259,6 +4305,7 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
+        let origin = self.paint_transform.map_point(origin);
         let height = style.thickness;
         let bounds = Bounds {
             origin: origin.map(|c| ScaledPixels(round_to_device_pixel(c.0, scale_factor))),
@@ -4336,6 +4383,7 @@ impl Window {
                 origin: integer_origin + raster_bounds.origin.map(Into::into),
                 size: tile.bounds.size.map(Into::into),
             };
+            let bounds = self.paint_transform.map_device_bounds(bounds, scale_factor);
             let content_mask = self.snapped_content_mask();
 
             if subpixel_rendering {
@@ -4427,6 +4475,7 @@ impl Window {
                 origin: integer_origin + raster_bounds.origin.map(Into::into),
                 size: tile.bounds.size.map(Into::into),
             };
+            let bounds = self.paint_transform.map_device_bounds(bounds, scale_factor);
             let content_mask = self.snapped_content_mask();
             let opacity = self.element_opacity();
 
@@ -4459,7 +4508,7 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let element_opacity = self.element_opacity();
-        let bounds = self.snap_bounds(bounds);
+        let bounds = self.snap_bounds_untransformed(bounds);
 
         let params = RenderSvgParams {
             path,
@@ -4495,6 +4544,12 @@ impl Window {
         let final_bounds = svg_bounds
             .map_origin(|value| ScaledPixels(round_half_toward_zero(value.0)))
             .map_size(|size| size.ceil());
+        let final_bounds = self
+            .paint_transform
+            .map_device_bounds(final_bounds, self.scale_factor());
+        let transformation = self
+            .paint_transform
+            .conjugate_device_matrix(transformation, self.scale_factor());
 
         self.next_frame.scene.insert_primitive(MonochromeSprite {
             order: 0,
@@ -4599,7 +4654,7 @@ impl Window {
         let content_mask = self.snapped_content_mask();
         let corner_radii = corner_radii
             .clamp_radii_for_quad_size(visible_bounds.size)
-            .scale(self.scale_factor());
+            .scale(self.paint_transform_folded().0);
         let opacity = self.element_opacity();
 
         self.next_frame.scene.insert_primitive(PolychromeSprite {
@@ -4648,9 +4703,10 @@ impl Window {
 
         self.invalidator.debug_assert_paint();
 
-        let scale_factor = self.scale_factor();
-        let bounds = bounds.scale(scale_factor);
-        let content_mask = self.content_mask().scale(scale_factor);
+        let (scale_factor, offset) = self.paint_transform_folded();
+        let bounds = bounds.scale(scale_factor) + offset;
+        let mut content_mask = self.content_mask().scale(scale_factor);
+        content_mask.bounds = content_mask.bounds + offset;
         self.next_frame.scene.insert_primitive(PaintSurface {
             order: 0,
             bounds,

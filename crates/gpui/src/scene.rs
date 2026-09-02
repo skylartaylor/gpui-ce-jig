@@ -5,8 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, Edges, Pixels, Point,
-    Radians, ScaledFilter, ScaledPixels, Size, bounds_tree::BoundsTree, point,
+    AtlasTextureId, AtlasTile, Background, Bounds, ContentMask, Corners, Edges, IsZero, Pixels,
+    Point, Radians, ScaledFilter, ScaledPixels, Size, bounds_tree::BoundsTree, point,
 };
 use smallvec::SmallVec;
 use std::{
@@ -1117,6 +1117,24 @@ impl Path<Pixels> {
             st_position: st.2,
             content_mask: Default::default(),
         });
+    }
+}
+
+impl Path<ScaledPixels> {
+    pub(crate) fn translate(mut self, offset: Point<ScaledPixels>) -> Self {
+        if offset.is_zero() {
+            return self;
+        }
+
+        self.bounds = self.bounds + offset;
+        self.content_mask.bounds = self.content_mask.bounds + offset;
+        self.start = self.start + offset;
+        self.current = self.current + offset;
+        for vertex in &mut self.vertices {
+            vertex.xy_position = vertex.xy_position + offset;
+            vertex.content_mask.bounds = vertex.content_mask.bounds + offset;
+        }
+        self
     }
 }
 

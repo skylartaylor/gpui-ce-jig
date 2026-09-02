@@ -5,11 +5,12 @@
 - Upstream repository: `gpui-ce/gpui-ce`
 - Selected base: `f2de912c5831d41d7aa6d9938f78969e49c7604d`
 - Published candidate branch: `jig/runtime-refresh-2026-09`
-- Companion component revision: `ab22b497153eb84f426a137b52d37d9afc2bbc39`
-- Companion adopted tag: `jig-adopted/component-2026-09-01.1`
-- Companion reviewed candidate: `47d393cf3c55f38818bf332da49442e731c30e9c`
-- Companion reviewed and adopted tree: `fe0d782f0b30400715427b4c20798d9cc6dd76cc`
-- Reviewed paired runtime code head: `7bcc3ebc46d88f4c4c4fc21365825fe3dff2054b`
+- Companion component revision: `10af28396e3d34145a287f1060ebb48dbd7abf2c`
+- Companion adopted tag: `jig-adopted/component-2026-09-01.2`
+- Companion adopted tag object: `a1921918cae16d82e114c0fcd3ca00840753c51d`
+- Companion reviewed candidate: `79c141b428f5d008e5b3c6d5b242afc5bdf04757`
+- Companion reviewed and adopted tree: `b5a9c192215b7461a4c8d4ec11fa5a26e1e61865`
+- Reviewed paired runtime code head: `781c86514dff3e667b672047bb76cef440d3f22e`
 - Consumer revisions and runtime adopted tag: pending exact-head proof gates
 
 The component fork is adopted at the immutable revision and tag above. The
@@ -48,7 +49,7 @@ packages; the component remains a separately adopted Git dependency.
 The candidate retains the current GPUI-CE package identities (`gpui-ce`,
 `gpui_ce_platform`, `gpui_ce_web`, and `gpui_ce_macros`). The adopted component
 revision is pinned as this repository's `crates/gpui_ce_components` gitlink and
-was reviewed against runtime code head `7bcc3ebc46d88f4c4c4fc21365825fe3dff2054b`.
+was reviewed against runtime code head `781c86514dff3e667b672047bb76cef440d3f22e`.
 Runtime adoption still requires target-aware positive and negative Cargo tree
 proofs, exact-head pull-request CI conclusions, the security audit, consumer
 revision proofs, and an annotated non-moving runtime tag recorded here.

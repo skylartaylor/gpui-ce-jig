@@ -5,9 +5,11 @@ use std::time::Duration;
 
 /// An opt-in native HTTP client for applications that load remote resources.
 ///
-/// Constructing this client does not install it globally. Pass it to
+/// Constructing this client does not install the HTTP client in GPUI. Pass it to
 /// [`gpui::Application::with_http_client`] when network access is appropriate
-/// for the application.
+/// for the application. Construction installs Ring as the process-wide Rustls
+/// crypto provider only when no provider is already installed. Applications
+/// that require another provider must install it before constructing this client.
 pub struct NativeHttpClient {
     follow_redirects: Client,
     reject_redirects: Client,
@@ -21,11 +23,18 @@ impl NativeHttpClient {
 
     /// Builds a client with the provided HTTP user agent.
     pub fn user_agent(user_agent: impl AsRef<str>) -> anyhow::Result<Self> {
+        ensure_crypto_provider();
         let user_agent = user_agent.as_ref();
         Ok(Self {
             follow_redirects: build_client(user_agent, Policy::limited(10))?,
             reject_redirects: build_client(user_agent, Policy::none())?,
         })
+    }
+}
+
+fn ensure_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        drop(rustls::crypto::ring::default_provider().install_default());
     }
 }
 

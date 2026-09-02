@@ -35,10 +35,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: matrix.working-directory == 'crates/gpui_ce_components'
+      - name: Verify the ignored rkyv compatibility edge is unreachable
+        if: matrix.working-directory == 'crates/gpui_ce_components'
+        working-directory: crates/gpui_ce_components
+        shell: bash
+        run: |
+          tree_output="$(cargo tree --locked --target all --workspace --all-features -i rkyv@0.7.46 2>&1)" || {
+            printf '%s\n' "$tree_output"
+            echo "inspect Cargo.lock: remove the exception if rkyv is fixed or absent; otherwise re-pin this guard"
+            exit 1
+          }
+          printf '%s\n' "$tree_output"
+          if grep -q '^rkyv v0\.7\.46' <<<"$tree_output"; then
+            echo "rkyv 0.7.46 became reachable in the all-target, all-feature workspace graph"
+            exit 1
+          fi
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: ${{ matrix.working-directory }}
+          ignore: ${{ matrix.working-directory == 'crates/gpui_ce_components' && 'RUSTSEC-2026-0235' || '' }}
 
   # cargo-deny: license compliance + advisory + duplicate detection
   cargo-deny:

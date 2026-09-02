@@ -123,6 +123,18 @@ jobs:
           # patches intentionally rewrite registry source and checksum entries
           # and are exercised by the component build and test jobs instead.
           (cd crates/gpui_ce_components && cargo metadata --locked --format-version 1 > /dev/null)
+      - name: Check platform crypto provider topology
+        run: |
+          tree_output="$(cargo tree -p gpui_ce_platform --locked -e features --target all 2>&1)" || {
+            printf '%s\n' "$tree_output"
+            exit 1
+          }
+          printf '%s\n' "$tree_output"
+          if grep -Eq 'aws-lc-sys v|cmake v' <<<"$tree_output"; then
+            echo "AWS-LC and CMake must not be reachable from gpui_ce_platform"
+            exit 1
+          fi
+          grep -q 'rustls feature "ring"' <<<"$tree_output"
 
   # Unused dependencies
   machete:

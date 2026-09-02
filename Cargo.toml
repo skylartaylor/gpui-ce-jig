@@ -83,10 +83,11 @@ rand = "0.9.4"
 regex = "1.5"
 reqwest = { version = "0.13.4", default-features = false, features = [
   "blocking",
-  "rustls",
+  "rustls-no-provider",
   "system-proxy",
 ] }
 refineable = { path = "crates/gpui_refineable", version = "0.2.2", package = "gpui_ce_refineable" }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 scheduler = { path = "crates/gpui_scheduler", version = "0.2.2", package = "gpui_ce_scheduler" }
 schemars = { version = "1.0", features = ["indexmap2"] }
 serde = { version = "1.0.221", features = ["derive", "rc"] }
